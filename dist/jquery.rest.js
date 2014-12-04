@@ -351,8 +351,8 @@ Resource = (function() {
       method = 'POST';
     }
     if (this.opts.stripTrailingSlash) {
-      //url = url.replace(/\/$/, "");
       url = url.replace("/?", "?");
+      url = url.replace(/\/$/, "");
     }
     ajaxOpts = {
       url: url,
