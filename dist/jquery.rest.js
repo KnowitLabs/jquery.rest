@@ -1,11 +1,10 @@
-// jQuery REST Client - v0.0.7 - https://github.com/jpillora/jquery.rest
-// Jaime Pillora <dev@jpillora.com> - MIT Copyright 2013
-(function(window,document,$,undefined) {
-'use strict';
+// jQuery REST Client - v1.0.2 - https://github.com/jpillora/jquery.rest
+// Jaime Pillora <dev@jpillora.com> - MIT Copyright 2014
+(function(window,$,undefined) {'use strict';
 var Cache, Resource, Verb, defaultOpts, deleteWarning, encode64, error, inheritExtend, s, stringify, validateOpts, validateStr;
 
 error = function(msg) {
-  throw "ERROR: jquery.rest: " + msg;
+  throw new Error("ERROR: jquery.rest: " + msg);
 };
 
 s = function(n) {
@@ -66,6 +65,8 @@ defaultOpts = {
   request: function(resource, options) {
     return $.ajax(options);
   },
+  isSingle: false,
+  autoClearCache: true,
   cachableMethods: ['GET'],
   methodOverride: false,
   stringifyData: false,
@@ -202,7 +203,7 @@ Resource = (function() {
   Resource.prototype.constructRoot = function(options) {
     this.opts = inheritExtend(defaultOpts, options);
     this.root = this;
-    this.numParents = 0;
+    this.expectedIds = 0;
     this.urlNoId = this.url;
     this.cache = new Cache(this);
     this.parent = null;
@@ -222,10 +223,15 @@ Resource = (function() {
       options.url = '';
     }
     this.opts = inheritExtend(this.parent.opts, options);
+    this.opts.isSingle = 'isSingle' in options && options.isSingle;
     this.root = this.parent.root;
-    this.numParents = this.parent.numParents + 1;
     this.urlNoId = this.parent.url + ("" + (this.opts.url || this.name) + "/");
-    this.url = this.urlNoId + (":ID_" + this.numParents + "/");
+    this.url = this.urlNoId;
+    this.expectedIds = this.parent.expectedIds;
+    if (!this.opts.isSingle) {
+      this.expectedIds += 1;
+      this.url += ":ID_" + this.expectedIds + "/";
+    }
     $.each(this.opts.verbs, $.proxy(this.addVerb, this));
     if (this.destroy) {
       this.del = this.destroy;
@@ -273,7 +279,7 @@ Resource = (function() {
   };
 
   Resource.prototype.extractUrlData = function(name, args) {
-    var arg, canUrl, canUrlNoId, data, i, id, ids, msg, numIds, params, t, url, _i, _j, _len, _len1;
+    var arg, canUrl, canUrlNoId, data, i, id, ids, msg, params, providedIds, t, url, _i, _j, _len, _len1;
     ids = [];
     data = null;
     params = null;
@@ -290,24 +296,24 @@ Resource = (function() {
         error(("Invalid argument: " + arg + " (" + t + ").") + " Must be strings or ints (IDs) followed by one optional object and one optional query params object.");
       }
     }
-    numIds = ids.length;
+    providedIds = ids.length;
     canUrl = name !== 'create';
     canUrlNoId = name !== 'update' && name !== 'delete';
     url = null;
-    if (canUrl && numIds === this.numParents) {
+    if (canUrl && providedIds === this.expectedIds) {
       url = this.url;
     }
-    if (canUrlNoId && numIds === this.numParents - 1) {
+    if (canUrlNoId && providedIds === this.expectedIds - 1) {
       url = this.urlNoId;
     }
     if (url === null) {
       if (canUrlNoId) {
-        msg = this.numParents - 1;
+        msg = this.expectedIds - 1;
       }
       if (canUrl) {
-        msg = (msg ? msg + ' or ' : '') + this.numParents;
+        msg = (msg ? msg + ' or ' : '') + this.expectedIds;
       }
-      error("Invalid number of ID arguments, required " + msg + ", provided " + numIds);
+      error("Invalid number of ID arguments, required " + msg + ", provided " + providedIds);
     }
     for (i = _j = 0, _len1 = ids.length; _j < _len1; i = ++_j) {
       id = ids[i];
@@ -323,7 +329,7 @@ Resource = (function() {
   };
 
   Resource.prototype.ajax = function(method, url, data) {
-    var ajaxOpts, encoded, headers, key, req, useCache,
+    var ajaxOpts, encoded, escapedUrl, headers, key, req, useCache,
       _this = this;
     if (!method) {
       error("method missing");
@@ -336,7 +342,7 @@ Resource = (function() {
       encoded = encode64(this.opts.username + ":" + this.opts.password);
       headers.Authorization = "Basic " + encoded;
     }
-    if (data && this.opts.stringifyData) {
+    if (data && this.opts.stringifyData && (method !== 'GET' && method !== 'HEAD')) {
       data = stringify(data);
       headers['Content-Type'] = "application/json";
     }
@@ -345,7 +351,8 @@ Resource = (function() {
       method = 'POST';
     }
     if (this.opts.stripTrailingSlash) {
-      url = url.replace(/\/$/, "");
+      //url = url.replace(/\/$/, "");
+      url = url.replace("/?", "?");
     }
     ajaxOpts = {
       url: url,
@@ -364,6 +371,10 @@ Resource = (function() {
         return req;
       }
     }
+    if (this.opts.cache && this.opts.autoClearCache && $.inArray(method, this.opts.cachableMethods) === -1) {
+      escapedUrl = url.replace(/([.?*+^$[\]\\(){}|-])/g, "\\$1");
+      this.root.cache.clear(new RegExp(escapedUrl));
+    }
     req = this.opts.request(this.parent, ajaxOpts);
     if (useCache) {
       req.done(function() {
@@ -380,4 +391,4 @@ Resource = (function() {
 Resource.defaults = defaultOpts;
 
 $.RestClient = Resource;
-}(window,document,jQuery));
+}.call(this,window,jQuery));
